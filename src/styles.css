@@ -775,3 +775,42 @@ textarea:focus {
     font-size: 10px;
   }
 }
+
+.agreement .sigs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 12px 0;
+}
+.sig {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px dashed var(--line);
+  background: #faf8f2;
+}
+.sig.done {
+  border-style: solid;
+  border-color: #bfe3cf;
+  background: var(--green-soft);
+}
+.sig-name {
+  font-family: var(--serif);
+  font-size: 22px;
+  font-style: italic;
+  color: var(--green-d);
+}
+.sign {
+  display: flex;
+  gap: 10px;
+}
+@media (max-width: 720px) {
+  .agreement .sigs {
+    grid-template-columns: 1fr;
+  }
+  .sign {
+    flex-direction: column;
+  }
+}

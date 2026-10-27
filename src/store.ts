@@ -22,6 +22,13 @@ export interface Deal {
   plan: Omit<Plan, 'milestones'>;
   milestones: DealMilestone[];
   log: Event[];
+  /** e-signatures on the deal agreement */
+  signatures?: { client?: Signature; freelancer?: Signature };
+}
+
+export interface Signature {
+  name: string;
+  at: number;
 }
 
 const KEY = 'safedeal-deals-v1';

@@ -270,7 +270,33 @@ function requestChanges(d: Deal, i: number) {
   toast('Sent back to the freelancer with the AI’s fix list.');
 }
 
-/** A plain-text record of everything that happened — useful if a PayPal dispute is ever opened. */
+async function pdf(kind: 'agreement' | 'evidence' | 'receipt', d: Deal, i = 0) {
+  busy['pdf' + kind + i] = true;
+  render();
+  try {
+    const m = await import('./pdf');
+    const bytes = kind === 'agreement' ? await m.agreementPdf(d) : kind === 'evidence' ? await m.evidencePdf(d) : await m.receiptPdf(d, i);
+    toast(`PDF downloaded (${Math.max(1, Math.round(bytes / 1024))} KB)`);
+  } catch (e) {
+    toast(`Couldn't make the PDF: ${(e as Error).message}`);
+  }
+  busy['pdf' + kind + i] = false;
+  render();
+}
+
+function sign(d: Deal, form: HTMLFormElement) {
+  const name = String(new FormData(form).get('signname') || '').trim();
+  if (name.length < 3) return toast('Type your full name to sign');
+  d.signatures = { ...d.signatures, [role]: { name, at: Date.now() } };
+  log(d, role, `${name} signed the agreement as ${role}`);
+  persist();
+  render();
+  toast(bothSigned(d) ? 'Both sides signed — the client can now fund the first milestone.' : 'Signed. Waiting for the other side.');
+}
+
+const bothSigned = (d: Deal) => !!(d.signatures?.client && d.signatures?.freelancer);
+
+/** Old plain-text record (kept for reference; the UI uses the PDF version). */
 function evidence(d: Deal) {
   const lines = [
     `SafeDeal evidence record — ${d.plan.title}`,
@@ -405,7 +431,9 @@ function milestoneCard(d: Deal, m: DealMilestone, i: number) {
   const sub = m.submissions[m.submissions.length - 1];
   let action = '';
 
-  if (m.state === 'draft') {
+  if (m.state === 'draft' && !bothSigned(d)) {
+    action = `<div class="act wait">✍️ Both sides sign the agreement above before money is held.</div>`;
+  } else if (m.state === 'draft') {
     action =
       role === 'client'
         ? `<div class="act"><p><b>Fund this milestone.</b> ${usd(m.amount, cur)} will be <b>held</b> by PayPal — not paid — until you accept the work.</p>
@@ -441,7 +469,8 @@ function milestoneCard(d: Deal, m: DealMilestone, i: number) {
           : `<div class="act wait">The client is deciding. ${last.verdict === 'approve' ? 'The AI recommends releasing the money.' : 'You will see the fix list if changes are requested.'}</div>`
       }`;
   } else if (m.state === 'released') {
-    action = `<div class="act ok">✓ <b>${usd(m.amount, cur)} paid to the freelancer</b> via PayPal${m.pay.captureId ? ` · <span class="mono">${esc(m.pay.captureId)}</span>` : ''}</div>`;
+    action = `<div class="act ok">✓ <b>${usd(m.amount, cur)} paid to the freelancer</b> via PayPal${m.pay.captureId ? ` · <span class="mono">${esc(m.pay.captureId)}</span>` : ''}
+      <div class="row-btns"><button class="btn small" data-act="pdf" data-k="receipt" data-i="${i}">${busy['pdfreceipt' + i] ? 'Making PDF…' : '⬇ Receipt (PDF)'}</button></div></div>`;
   } else if (m.state === 'returned') {
     action = `<div class="act void">↩ Hold cancelled — ${usd(m.amount, cur)} was never taken from the client.</div>`;
   }
@@ -464,6 +493,26 @@ function milestoneCard(d: Deal, m: DealMilestone, i: number) {
   </article>`;
 }
 
+function agreementCard(d: Deal) {
+  const sig = d.signatures ?? {};
+  const mine = sig[role];
+  const row = (who: Role, label: string) => {
+    const x = sig[who];
+    return `<div class="sig ${x ? 'done' : ''}"><span class="muted small">${label}</span>${x ? `<b class="sig-name">${esc(x.name)}</b><span class="muted small">signed ${new Date(x.at).toLocaleString()}</span>` : '<span class="muted">Not signed yet</span>'}</div>`;
+  };
+  return `<section class="card agreement">
+    <div class="card-h"><h3>📄 Deal agreement</h3><button class="btn small" data-act="pdf" data-k="agreement">${busy.pdfagreement0 ? 'Making PDF…' : '⬇ Agreement (PDF)'}</button></div>
+    <p class="muted small">Scope, milestones, acceptance criteria and payment rules. Both sides sign before any money is held.</p>
+    <div class="sigs">${row('client', '👤 Client')}${row('freelancer', '🛠 Freelancer')}</div>
+    ${
+      mine
+        ? ''
+        : `<form class="sign" data-form="sign"><input name="signname" placeholder="Type your full name to sign as ${role}" autocomplete="name" />
+           <button class="btn primary">✍️ I agree & sign</button></form>`
+    }
+  </section>`;
+}
+
 function dealView(d: Deal) {
   const t = totals(d);
   const who = { client: '👤', freelancer: '🛠', ai: '✨', paypal: '🅿️' } as const;
@@ -480,12 +529,14 @@ function dealView(d: Deal) {
     </div>
     <div class="viewing">Viewing as <b>${role === 'client' ? '👤 Client' : '🛠 Freelancer'}</b> — switch roles at the top to see the other side.</div>
 
+    ${agreementCard(d)}
+
     ${d.plan.risks.length ? `<section class="card risks"><h3>⚠ Agree on these before you start</h3><ul>${d.plan.risks.map((r) => `<li>${esc(r)}</li>`).join('')}</ul></section>` : ''}
 
     ${d.milestones.map((m, i) => milestoneCard(d, m, i)).join('')}
 
     <section class="card log">
-      <div class="card-h"><h3>Timeline</h3><button class="btn small ghost" data-act="evidence">⬇ Evidence record</button></div>
+      <div class="card-h"><h3>Timeline</h3><button class="btn small ghost" data-act="pdf" data-k="evidence">${busy.pdfevidence0 ? 'Making PDF…' : '⬇ Evidence record (PDF)'}</button></div>
       <ul>${[...d.log]
         .reverse()
         .map((e) => `<li><span class="who">${who[e.who]}</span><div><p>${esc(e.text)}</p><span class="muted small">${when(e.at)}</span></div></li>`)
@@ -565,6 +616,9 @@ app.addEventListener('click', (e) => {
     case 'evidence':
       if (d) evidence(d);
       break;
+    case 'pdf':
+      if (d) pdf(t.dataset.k as 'agreement' | 'evidence' | 'receipt', d, Number(t.dataset.i) || 0);
+      break;
   }
 });
 
@@ -572,6 +626,10 @@ app.addEventListener('submit', (e) => {
   e.preventDefault();
   const f = e.target as HTMLFormElement;
   if (f.dataset.form === 'new') createDeal(f);
+  if (f.dataset.form === 'sign') {
+    const d = currentDeal();
+    if (d) sign(d, f);
+  }
   if (f.dataset.form === 'submit') {
     const d = currentDeal();
     if (d) submitWork(d, Number(f.dataset.i), f);
