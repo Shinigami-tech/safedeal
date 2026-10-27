@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bean There — specialty coffee in Astana</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:Georgia,serif;background:#f6efe6;color:#3b2a1e}
+header{display:flex;justify-content:space-between;align-items:center;padding:18px 6vw;background:#3b2a1e;color:#f6efe6}
+header nav a{color:#f6efe6;margin-left:18px;text-decoration:none;font-family:system-ui}
+.hero{padding:70px 6vw;background:linear-gradient(120deg,#c79a6b,#7b4f2c);color:#fff}.hero h1{font-size:clamp(40px,8vw,72px);margin:0}
+section{padding:40px 6vw}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px}
+.item{background:#fff;border-radius:14px;padding:16px;display:flex;justify-content:space-between}
+.gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px}.gallery img{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:12px;background:#d9c3a5}
+table{border-collapse:collapse}td{padding:6px 18px 6px 0}
+form{display:grid;gap:10px;max-width:420px}input,button{padding:12px;border-radius:10px;border:1px solid #c9b79f;font:inherit}button{background:#3b2a1e;color:#fff;border:0}
+label{font-family:system-ui;font-size:14px;margin-top:4px}
+@media (max-width:600px){header{flex-direction:column;gap:8px}header nav a{margin:0 8px}section{padding:28px 5vw}form{max-width:100%}input,button{width:100%}.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header><strong>Bean There</strong><nav><a href="#menu">Menu</a><a href="#hours">Hours</a><a href="#book">Book a table</a><a href="https://www.instagram.com/beanthere.astana" target="_blank" rel="noopener">Instagram</a></nav></header>
+<div class="hero"><h1>Bean There</h1><p>Specialty coffee and fresh pastries in the heart of Astana.</p></div>
+<section id="menu"><h2>Menu</h2><div class="grid">
+<div class="item"><span><b>Espresso</b><br><small>Double shot, Ethiopian beans</small></span><b>900 ₸</b></div>
+<div class="item"><span><b>Americano</b><br><small>Espresso with hot water</small></span><b>1 100 ₸</b></div>
+<div class="item"><span><b>Cappuccino</b><br><small>Espresso, steamed milk, foam</small></span><b>1 400 ₸</b></div>
+<div class="item"><span><b>Flat white</b><br><small>Double ristretto, silky milk</small></span><b>1 500 ₸</b></div>
+<div class="item"><span><b>Latte</b><br><small>Mild and milky</small></span><b>1 500 ₸</b></div>
+<div class="item"><span><b>Raf with lavender</b><br><small>Cream, vanilla sugar, lavender</small></span><b>1 800 ₸</b></div>
+<div class="item"><span><b>Matcha latte</b><br><small>Japanese matcha with oat milk</small></span><b>1 700 ₸</b></div>
+<div class="item"><span><b>Butter croissant</b><br><small>Baked every morning</small></span><b>1 200 ₸</b></div>
+<div class="item"><span><b>Cheesecake</b><br><small>New York style, berry sauce</small></span><b>1 900 ₸</b></div>
+</div></section>
+<section><h2>Photos</h2><div class="gallery">
+<img alt="Bean There interior" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 4 3'%3E%3Crect width='4' height='3' fill='%23b98a5e'/%3E%3C/svg%3E">
+<img alt="Latte art" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 4 3'%3E%3Crect width='4' height='3' fill='%23d9b38c'/%3E%3C/svg%3E">
+<img alt="Fresh croissants" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 4 3'%3E%3Crect width='4' height='3' fill='%23e2c08f'/%3E%3C/svg%3E">
+<img alt="Bar counter" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 4 3'%3E%3Crect width='4' height='3' fill='%238a5a36'/%3E%3C/svg%3E">
+</div></section>
+<section id="hours"><h2>Opening hours</h2><table>
+<tr><td>Monday</td><td>08:00 – 22:00</td></tr><tr><td>Tuesday</td><td>08:00 – 22:00</td></tr><tr><td>Wednesday</td><td>08:00 – 22:00</td></tr><tr><td>Thursday</td><td>08:00 – 22:00</td></tr><tr><td>Friday</td><td>08:00 – 22:00</td></tr>
+<tr><td>Saturday</td><td>09:00 – 23:00</td></tr>
+<tr><td>Sunday</td><td>09:00 – 21:00</td></tr>
+</table><p>Kabanbay Batyr Ave 15, Astana</p></section>
+<section id="book"><h2>Book a table</h2>
+<form action="#book" method="post" onsubmit="event.preventDefault();this.innerHTML='<p role=status>Thank you! Your table is booked. We will confirm by phone.</p>'">
+<label for="name">Name</label><input id="name" name="name" placeholder="Your name" required>
+<label for="phone">Phone</label><input id="phone" name="phone" type="tel" placeholder="+7 700 000 00 00" required>
+<label for="date">Date</label><input id="date" name="date" type="date" required>
+<label for="time">Time</label><input id="time" name="time" type="time" required>
+<label for="guests">Guests</label><input id="guests" name="guests" type="number" min="1" max="12" placeholder="Number of guests" required>
+<button type="submit">Book a table</button>
+</form></section>
+<footer style="padding:30px 6vw;background:#3b2a1e;color:#f6efe6"><p>Bean There · Kabanbay Batyr Ave 15, Astana · Follow us on <a style="color:#f6efe6" href="https://www.instagram.com/beanthere.astana" target="_blank" rel="noopener">Instagram @beanthere.astana</a></p></footer>
+</body>
+</html>

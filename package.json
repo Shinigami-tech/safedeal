@@ -1,0 +1,19 @@
+{
+  "name": "safedeal",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "SafeDeal: AI escrow for freelancers. Money is held with PayPal and released only when an AI reviewer confirms the work matches what was agreed.",
+  "license": "MIT",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@vercel/node": "^5.0.0",
+    "typescript": "^5.6.3",
+    "vite": "^6.0.0"
+  }
+}
