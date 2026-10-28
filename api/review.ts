@@ -197,7 +197,7 @@ export default handler(async (body) => {
   const verdict: Review['verdict'] = broken || (auto.length > 0 && failed === auto.length) ? 'reject' : failed || unclear ? 'changes' : 'approve';
   const review: Review = {
     verdict,
-    score: auto.length ? Math.round((passed / auto.length) * 100) : Math.max(0, Math.min(100, Math.round(Number(r.score) || 0))),
+    score: auto.length ? Math.round((passed / auto.length) * 100) : 0,
     summary: spa && !image && verdict !== 'approve' ? 'This delivery is drawn by JavaScript (a game, 3D or single-page app), so the AI cannot see it from the page code alone. Attach a screenshot so the AI can check it visually, or the client test-plays it and decides.' : r.summary || '',
     checks,
     fixes: Array.isArray(r.fixes) ? r.fixes.slice(0, 6) : [],

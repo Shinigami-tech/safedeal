@@ -462,11 +462,12 @@ function stepper(m: DealMilestone) {
 
 function reviewBlock(r: Review) {
   const icon = { pass: '✓', fail: '✕', unclear: '?' } as const;
-  const label = { approve: 'Ready to release', changes: 'Changes needed', reject: 'Not delivered' }[r.verdict];
+  const clientOnly = r.counts?.checkable === 0;
+  const label = clientOnly ? 'Your call — test it yourself' : { approve: 'Ready to release', changes: 'Changes needed', reject: 'Not delivered' }[r.verdict];
   return `<div class="review ${r.verdict}">
     <div class="rv-h">
-      <div class="ring" style="--p:${r.score}"><span>${r.score}%</span></div>
-      <div><span class="tag ${r.verdict}">${label}</span>${
+      <div class="ring" style="--p:${clientOnly ? 0 : r.score}"><span>${clientOnly ? '—' : r.score + '%'}</span></div>
+      <div><span class="tag ${clientOnly ? 'changes' : r.verdict}">${label}</span>${
         r.counts ? `<span class="muted small counts">${r.counts.confirmed} of ${r.counts.checkable} AI-checkable point${r.counts.checkable === 1 ? '' : 's'} confirmed${r.counts.client ? ` · ${r.counts.client} for the client to check` : ''}</span>` : ''
       }<p>${esc(r.summary)}</p>
       ${r.observed ? `<p class="muted small">Opened <a href="${esc(r.observed.url)}" target="_blank" rel="noopener">${esc(r.observed.title || r.observed.url)}</a> · HTTP ${r.observed.status} · ${r.observed.forms} form${r.observed.forms === 1 ? '' : 's'} · ${r.observed.images} images · ${r.observed.mobile ? 'mobile-ready' : 'no mobile viewport'}</p>` : ''}</div>
