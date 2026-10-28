@@ -36,6 +36,8 @@ export interface Review {
   checks: CheckResult[];
   /** what the freelancer should fix, if anything */
   fixes: string[];
+  /** how the score was computed */
+  counts?: { checkable: number; confirmed: number; client: number };
   /** facts gathered from the delivered page */
   observed: { url: string; title: string; status: number; mobile: boolean; forms: number; images: number; words: number } | null;
 }

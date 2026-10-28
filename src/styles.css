@@ -834,3 +834,7 @@ textarea:focus {
   gap: 8px;
   margin-top: 8px;
 }
+
+.counts {
+  margin-left: 8px;
+}

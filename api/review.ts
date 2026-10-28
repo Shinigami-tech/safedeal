@@ -113,6 +113,8 @@ export default handler(async (body) => {
   const m = body.milestone as Milestone | undefined;
   const sub = body.submission as { url?: string; notes?: string; image?: string; images?: string[] } | undefined;
   const lang = typeof body.lang === 'string' ? body.lang : 'English';
+  /** checks confirmed in earlier submissions of this milestone — proven once, they stay proven */
+  const earlier = (Array.isArray(body.earlier) ? body.earlier : []) as { criterion: string; evidence: string }[];
   if (!m?.criteria?.length) throw new HttpError(400, 'Milestone with criteria required');
   if (!sub?.url && !sub?.image && !sub?.images?.length) throw new HttpError(400, 'Submit a link or a screenshot');
 
@@ -173,6 +175,15 @@ export default handler(async (body) => {
       c.evidence = `This page is drawn by JavaScript (a game/3D app or single-page app), so the reviewer cannot see it from the HTML. Attach a screenshot or the client test-plays it. (${c.evidence})`;
     }
   });
+  checks.forEach((c, i) => {
+    if (c.status !== 'unclear') return;
+    const crit = checks.length === m.criteria.length ? m.criteria[i].text : c.criterion;
+    const prev = earlier.find((e) => e.criterion === crit || e.criterion === c.criterion);
+    if (prev) {
+      c.status = 'pass';
+      c.evidence = `Confirmed in an earlier submission: ${prev.evidence}`;
+    }
+  });
   const auto = checks.filter((_, i) => kinds[i] !== 'manual');
   const passed = auto.filter((c) => c.status === 'pass').length;
   const failed = auto.filter((c) => c.status === 'fail').length;
@@ -182,9 +193,10 @@ export default handler(async (body) => {
   const review: Review = {
     verdict,
     score: auto.length ? Math.round((passed / auto.length) * 100) : Math.max(0, Math.min(100, Math.round(Number(r.score) || 0))),
-    summary: spa && !image ? 'This delivery is drawn by JavaScript (a game, 3D or single-page app), so the AI cannot see it from the page code alone. Attach a screenshot so the AI can check it visually, or the client test-plays it and decides.' : r.summary || '',
+    summary: spa && !image && verdict !== 'approve' ? 'This delivery is drawn by JavaScript (a game, 3D or single-page app), so the AI cannot see it from the page code alone. Attach a screenshot so the AI can check it visually, or the client test-plays it and decides.' : r.summary || '',
     checks,
     fixes: Array.isArray(r.fixes) ? r.fixes.slice(0, 6) : [],
+    counts: { checkable: auto.length, confirmed: passed, client: checks.length - auto.length },
     observed: page ? { url: page.url, title: page.title, status: page.status, mobile: page.mobile, forms: page.forms, images: page.images, words: page.text.split(' ').length } : null,
   };
   return { review };

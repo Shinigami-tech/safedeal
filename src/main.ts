@@ -209,7 +209,9 @@ async function review(d: Deal, i: number) {
   busy['rev' + i] = true;
   render();
   try {
-    const { review } = await api<{ review: Review }>('review', { milestone: m, submission: sub });
+    // everything the AI already confirmed in earlier rounds carries over
+    const earlier = m.reviews.flatMap((r) => r.checks.map((c, k) => ({ ...c, criterion: r.checks.length === m.criteria.length ? m.criteria[k].text : c.criterion }))).filter((c) => c.status === 'pass');
+    const { review } = await api<{ review: Review }>('review', { milestone: m, submission: sub, earlier });
     m.reviews.push(review);
     m.state = 'reviewed';
     const label = { approve: 'recommends release', changes: 'asks for changes', reject: 'recommends rejecting' }[review.verdict];
@@ -428,7 +430,9 @@ function reviewBlock(r: Review) {
   return `<div class="review ${r.verdict}">
     <div class="rv-h">
       <div class="ring" style="--p:${r.score}"><span>${r.score}%</span></div>
-      <div><span class="tag ${r.verdict}">${label}</span><p>${esc(r.summary)}</p>
+      <div><span class="tag ${r.verdict}">${label}</span>${
+        r.counts ? `<span class="muted small counts">${r.counts.confirmed} of ${r.counts.checkable} AI-checkable point${r.counts.checkable === 1 ? '' : 's'} confirmed${r.counts.client ? ` · ${r.counts.client} for the client to check` : ''}</span>` : ''
+      }<p>${esc(r.summary)}</p>
       ${r.observed ? `<p class="muted small">Opened <a href="${esc(r.observed.url)}" target="_blank" rel="noopener">${esc(r.observed.title || r.observed.url)}</a> · HTTP ${r.observed.status} · ${r.observed.forms} form${r.observed.forms === 1 ? '' : 's'} · ${r.observed.images} images · ${r.observed.mobile ? 'mobile-ready' : 'no mobile viewport'}</p>` : ''}</div>
     </div>
     <ul class="checks">${r.checks
