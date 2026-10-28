@@ -295,6 +295,18 @@ function sign(d: Deal, form: HTMLFormElement) {
   toast(bothSigned(d) ? 'Both sides signed — the client can now fund the first milestone.' : 'Signed. Waiting for the other side.');
 }
 
+/** Changing the terms after one side signed invalidates that signature — both must agree to the same text. */
+function criteriaChanged(d: Deal, text: string) {
+  log(d, role, text);
+  if (d.signatures?.client || d.signatures?.freelancer) {
+    d.signatures = {};
+    log(d, 'ai', 'Terms changed — signatures cleared, both sides sign again');
+    toast('Terms changed, so both sides need to sign again.');
+  }
+  persist();
+  render();
+}
+
 const bothSigned = (d: Deal) => !!(d.signatures?.client && d.signatures?.freelancer);
 
 /** Old plain-text record (kept for reference; the UI uses the PDF version). */
@@ -477,6 +489,7 @@ function milestoneCard(d: Deal, m: DealMilestone, i: number) {
   }
 
   const results = last ? new Map(last.checks.map((c) => [c.criterion, c.status])) : null;
+  const editable = m.state === 'draft' && !bothSigned(d);
   return `
   <article class="card ms ${m.state}">
     <div class="ms-h">
@@ -484,12 +497,18 @@ function milestoneCard(d: Deal, m: DealMilestone, i: number) {
       <div class="amt">${usd(m.amount, cur)}</div>
     </div>
     ${stepper(m)}
-    <div class="crit"><h4>Acceptance criteria</h4><ul>${m.criteria
-      .map((c) => {
+    <div class="crit"><h4>Acceptance criteria${editable ? ' <span class="muted small">— edit before signing</span>' : ''}</h4><ul>${m.criteria
+      .map((c, k) => {
         const st = results?.get(c.text);
-        return `<li class="${st ?? ''}"><span class="kind" title="checked via ${c.check}">${c.check === 'page' ? '🔗' : c.check === 'image' ? '🖼' : '✋'}</span>${esc(c.text)}</li>`;
+        return `<li class="${st ?? ''}"><span class="kind" title="checked via ${c.check}">${c.check === 'page' ? '🔗' : c.check === 'image' ? '🖼' : '✋'}</span><span class="ct">${esc(c.text)}</span>${
+          editable ? `<button class="x" data-act="crit-del" data-i="${i}" data-c="${k}" title="Remove">✕</button>` : ''
+        }</li>`;
       })
-      .join('')}</ul></div>
+      .join('')}</ul>${
+      editable
+        ? `<form class="crit-add" data-form="crit-add" data-i="${i}"><input name="crit" placeholder="Add a criterion, e.g. “There is a contact form with name, email and message”" /><button class="btn small">+ Add</button></form>`
+        : ''
+    }</div>
     ${action}
   </article>`;
 }
@@ -617,6 +636,13 @@ app.addEventListener('click', (e) => {
     case 'evidence':
       if (d) evidence(d);
       break;
+    case 'crit-del':
+      if (d) {
+        const m = d.milestones[i];
+        const [gone] = m.criteria.splice(Number(t.dataset.c), 1);
+        criteriaChanged(d, `Removed criterion from "${m.title}": ${gone?.text ?? ''}`);
+      }
+      break;
     case 'pdf':
       if (d) pdf(t.dataset.k as 'agreement' | 'evidence' | 'receipt', d, Number(t.dataset.i) || 0);
       break;
@@ -627,6 +653,16 @@ app.addEventListener('submit', (e) => {
   e.preventDefault();
   const f = e.target as HTMLFormElement;
   if (f.dataset.form === 'new') createDeal(f);
+  if (f.dataset.form === 'crit-add') {
+    const d = currentDeal();
+    const text = String(new FormData(f).get('crit') || '').trim();
+    if (d && text.length > 5) {
+      const m = d.milestones[Number(f.dataset.i)];
+      m.criteria.push({ text, check: 'page' });
+      (f.elements.namedItem('crit') as HTMLInputElement).value = '';
+      criteriaChanged(d, `Added criterion to "${m.title}": ${text}`);
+    }
+  }
   if (f.dataset.form === 'sign') {
     const d = currentDeal();
     if (d) sign(d, f);

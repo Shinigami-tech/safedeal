@@ -119,8 +119,9 @@ export default handler(async (body) => {
   const page = sub.url ? await readPage(sub.url) : null;
   const image = typeof sub.image === 'string' && sub.image.startsWith('data:image/') ? sub.image : '';
 
+  const spa = page && page.status < 400 && page.text.split(' ').length < 60 && /<div id="(root|app|__next)"/.test(page.structure);
   const facts = page
-    ? `DELIVERED PAGE (fetched just now)\nURL: ${page.url}\nHTTP status: ${page.status}\nTitle: ${page.title}\nMobile viewport meta: ${page.mobile ? 'yes' : 'no'}\n` +
+    ? `DELIVERED PAGE (fetched just now)\nURL: ${page.url}\nHTTP status: ${page.status}\nTitle: ${page.title}\nMobile viewport meta: ${page.mobile ? 'yes' : 'no'}\n${spa ? 'NOTE: this page is rendered by JavaScript — the HTML below may not contain the real content.\n' : ''}` +
       `Forms: ${page.forms}\nForm fields: ${page.inputs.join(', ') || 'none'}\nImages: ${page.images}\nHeadings: ${page.headings.join(' | ')}\n` +
       `Links: ${page.links.join(' | ')}\nVisible text: ${page.text}\n\nPAGE HTML (simplified, inline handlers kept):\n${page.structure}\n\nCSS:\n${page.css || '(none)'}`
     : 'No link was provided.';
@@ -141,6 +142,8 @@ export default handler(async (body) => {
       content:
         `You are an impartial escrow reviewer. Money is held until the work matches the agreed acceptance criteria. ` +
         `Judge ONLY against the criteria, using ONLY the evidence given (page facts, screenshot, note). Be strict but fair: ` +
+        `judge the MEANING a client cares about, not the literal implementation — a section that clearly serves as the About section passes even without id="about"; a contact form with equivalent fields passes; similar wording passes unless the criterion demands exact text in quotes. ` +
+        `If the page looks rendered by JavaScript (little visible text, an empty root element), mark content criteria "unclear" (not "fail") and say a screenshot is needed. ` +
         `"pass" needs clear evidence, "fail" when evidence shows it is missing or wrong, "unclear" when it cannot be verified from the evidence ` +
         `(e.g. [manual] criteria, or a JavaScript-only page with no visible text). Never invent what you did not see. ` +
         `verdict: "approve" if every checkable criterion passes; "changes" if some fail but the work is mostly there; "reject" if the link is broken or the work is clearly not done. ` +

@@ -814,3 +814,23 @@ textarea:focus {
     flex-direction: column;
   }
 }
+
+.crit li .ct {
+  flex: 1;
+}
+.crit .x {
+  border: 0;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 4px;
+}
+.crit .x:hover {
+  color: var(--red);
+}
+.crit-add {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
