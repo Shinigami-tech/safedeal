@@ -111,15 +111,19 @@ const SCHEMA = `{
 
 export default handler(async (body) => {
   const m = body.milestone as Milestone | undefined;
-  const sub = body.submission as { url?: string; notes?: string; image?: string } | undefined;
+  const sub = body.submission as { url?: string; notes?: string; image?: string; images?: string[] } | undefined;
   const lang = typeof body.lang === 'string' ? body.lang : 'English';
   if (!m?.criteria?.length) throw new HttpError(400, 'Milestone with criteria required');
-  if (!sub?.url && !sub?.image) throw new HttpError(400, 'Submit a link or a screenshot');
+  if (!sub?.url && !sub?.image && !sub?.images?.length) throw new HttpError(400, 'Submit a link or a screenshot');
 
   const page = sub.url ? await readPage(sub.url) : null;
-  const image = typeof sub.image === 'string' && sub.image.startsWith('data:image/') ? sub.image : '';
+  const shots = [...(Array.isArray(sub.images) ? sub.images : []), ...(sub.image ? [sub.image] : [])]
+    .filter((x) => typeof x === 'string' && x.startsWith('data:image/'))
+    .slice(0, 3);
+  const image = shots.length > 0;
 
-  const spa = page && page.status < 400 && page.text.split(' ').length < 60 && /<div id="(root|app|__next)"/.test(page.structure);
+  // games, 3D/WebXR apps and SPAs draw their content with JavaScript: the raw HTML is nearly empty
+  const spa = !!page && page.status > 0 && page.status < 400 && page.text.split(' ').length < 60;
   const facts = page
     ? `DELIVERED PAGE (fetched just now)\nURL: ${page.url}\nHTTP status: ${page.status}\nTitle: ${page.title}\nMobile viewport meta: ${page.mobile ? 'yes' : 'no'}\n${spa ? 'NOTE: this page is rendered by JavaScript — the HTML below may not contain the real content.\n' : ''}` +
       `Forms: ${page.forms}\nForm fields: ${page.inputs.join(', ') || 'none'}\nImages: ${page.images}\nHeadings: ${page.headings.join(' | ')}\n` +
@@ -131,9 +135,9 @@ export default handler(async (body) => {
       type: 'text',
       text:
         `MILESTONE: ${m.title} (${m.amount})\nACCEPTANCE CRITERIA:\n${m.criteria.map((c, i) => `${i + 1}. [${c.check}] ${c.text}`).join('\n')}\n\n` +
-        `FREELANCER'S NOTE: ${sub.notes || '(none)'}\n\n${facts}${image ? '\n\nA screenshot of the delivered work is attached.' : ''}\n\nWrite summary, evidence and fixes in ${lang}.`,
+        `FREELANCER'S NOTE: ${sub.notes || '(none)'}\n\n${facts}${image ? `\n\n${shots.length} screenshot(s) of the delivered work are attached. A screenshot shows only one moment: if something is simply not visible in it, mark "unclear", not "fail" — use "fail" only when the screenshots show it is wrong or missing where it should be.` : ''}\n\nWrite summary, evidence and fixes in ${lang}.`,
     },
-    ...(image ? [{ type: 'image_url' as const, image_url: { url: image } }] : []),
+    ...shots.map((url) => ({ type: 'image_url' as const, image_url: { url } })),
   ];
 
   const r = await nemotronJson<Review>(image ? MODELS.vision : MODELS.text, [
@@ -161,19 +165,24 @@ export default handler(async (body) => {
   // Verdict is computed from the checks, not trusted blindly: [manual] criteria are for the client to confirm
   // and never block a release; anything checkable that FAILS does.
   const kinds = checks.map((c, i) => (checks.length === m.criteria.length ? m.criteria[i].check : m.criteria.find((k) => k.text === c.criterion)?.check ?? 'page'));
+  checks.forEach((c, i) => {
+    if (kinds[i] === 'manual' && c.status === 'unclear') c.evidence = `Client confirms this one. ${c.evidence}`.trim();
+    // an empty HTML shell is not proof that the work is missing — it just can't be seen without running it
+    if (spa && !image && c.status === 'fail') {
+      c.status = 'unclear';
+      c.evidence = `This page is drawn by JavaScript (a game/3D app or single-page app), so the reviewer cannot see it from the HTML. Attach a screenshot or the client test-plays it. (${c.evidence})`;
+    }
+  });
   const auto = checks.filter((_, i) => kinds[i] !== 'manual');
   const passed = auto.filter((c) => c.status === 'pass').length;
   const failed = auto.filter((c) => c.status === 'fail').length;
   const broken = page ? page.status === 0 || page.status >= 400 : false;
   const unclear = auto.length - passed - failed;
   const verdict: Review['verdict'] = broken || (failed > 0 && passed === 0) ? 'reject' : failed || unclear ? 'changes' : 'approve';
-  checks.forEach((c, i) => {
-    if (kinds[i] === 'manual' && c.status === 'unclear') c.evidence = `Client confirms this one. ${c.evidence}`.trim();
-  });
   const review: Review = {
     verdict,
     score: auto.length ? Math.round((passed / auto.length) * 100) : Math.max(0, Math.min(100, Math.round(Number(r.score) || 0))),
-    summary: r.summary || '',
+    summary: spa && !image ? 'This delivery is drawn by JavaScript (a game, 3D or single-page app), so the AI cannot see it from the page code alone. Attach a screenshot so the AI can check it visually, or the client test-plays it and decides.' : r.summary || '',
     checks,
     fixes: Array.isArray(r.fixes) ? r.fixes.slice(0, 6) : [],
     observed: page ? { url: page.url, title: page.title, status: page.status, mobile: page.mobile, forms: page.forms, images: page.images, words: page.text.split(' ').length } : null,

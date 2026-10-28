@@ -192,10 +192,10 @@ async function submitWork(d: Deal, i: number, form: HTMLFormElement) {
   const fd = new FormData(form);
   const url = String(fd.get('url') || '').trim();
   const notes = String(fd.get('notes') || '').trim();
-  const file = fd.get('shot') as File | null;
-  const image = file && file.size ? await fileToDataUrl(file) : undefined;
-  if (!url && !image) return toast('Add a link to the work or a screenshot');
-  m.submissions.push({ url, notes, image, at: Date.now() });
+  const files = (fd.getAll('shot') as File[]).filter((f) => f && f.size).slice(0, 3);
+  const images = await Promise.all(files.map(fileToDataUrl));
+  if (!url && !images.length) return toast('Add a link to the work or a screenshot');
+  m.submissions.push({ url, notes, images, at: Date.now() });
   m.state = 'submitted';
   log(d, 'freelancer', `Submitted "${m.title}"${url ? `: ${url}` : ''}`);
   persist();
@@ -462,7 +462,7 @@ function milestoneCard(d: Deal, m: DealMilestone, i: number) {
             <label>Link to the work<input name="url" placeholder="https://your-delivery.com" value="${esc(sub?.url ?? '')}" /></label>
             <div class="demo-links">Demo delivery: <button type="button" class="link" data-act="demo" data-v="1" data-i="${i}">v1 (unfinished)</button> · <button type="button" class="link" data-act="demo" data-v="2" data-i="${i}">v2 (finished)</button></div>
             <label>Note for the client<input name="notes" placeholder="What did you do?" /></label>
-            <label>Screenshot <span class="muted small">(optional — the AI looks at it too)</span><input name="shot" type="file" accept="image/*" /></label>
+            <label>Screenshots <span class="muted small">(up to 3 — needed for games, 3D/VR and apps; the AI looks at them)</span><input name="shot" type="file" accept="image/*" multiple /></label>
             <button class="btn primary">Submit for review</button>
           </form>`
         : `${fixes}<div class="act wait">💰 <b>${usd(m.amount, cur)} held by PayPal</b>${m.pay.heldUntil ? ` until ${day(m.pay.heldUntil)}` : ''}. The freelancer is working on it.

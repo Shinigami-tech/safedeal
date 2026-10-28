@@ -43,8 +43,9 @@ export interface Review {
 export interface Submission {
   url: string;
   notes: string;
-  /** optional screenshot as a data URL */
+  /** optional screenshot(s) as data URLs */
   image?: string;
+  images?: string[];
   at: number;
 }
 

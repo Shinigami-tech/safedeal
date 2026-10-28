@@ -48,7 +48,7 @@ export function saveDeals(d: Deal[]) {
   } catch {
     // too big (screenshots): drop images from old submissions and retry
     try {
-      const slim = d.map((x) => ({ ...x, milestones: x.milestones.map((m) => ({ ...m, submissions: m.submissions.map((s) => ({ ...s, image: undefined })) })) }));
+      const slim = d.map((x) => ({ ...x, milestones: x.milestones.map((m) => ({ ...m, submissions: m.submissions.map((s) => ({ ...s, image: undefined, images: undefined })) })) }));
       localStorage.setItem(KEY, JSON.stringify(slim.slice(0, 30)));
     } catch {
       /* ignore */
