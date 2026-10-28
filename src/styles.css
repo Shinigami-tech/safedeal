@@ -838,3 +838,47 @@ textarea:focus {
 .counts {
   margin-left: 8px;
 }
+
+.list-h,
+.deal-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.list-h h3 {
+  margin: 0;
+}
+.row-btns.tight {
+  margin: 0;
+}
+.deal-row.sel {
+  cursor: pointer;
+  justify-content: flex-start;
+  flex-direction: row;
+  font-weight: 400;
+}
+.deal-row.sel > div:first-of-type {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.deal-row.sel input {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  accent-color: var(--green-d);
+}
+.deal-row.sel.on {
+  border-color: var(--green);
+  background: #f3fbf6;
+}
+.btn.danger {
+  background: var(--red);
+  border-color: var(--red);
+  color: #fff;
+}
+.btn.danger-t {
+  color: var(--red);
+}

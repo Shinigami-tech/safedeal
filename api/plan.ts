@@ -16,6 +16,8 @@ const SCHEMA = `{
   "risks": ["vague points in the brief that could cause a dispute, phrased as a question to agree on"]
 }`;
 
+const BEHAVIOUR = /\b(when|react|reacts|breaks?|smash|trigger|plays?|music|sound|audio|animat\w*|click|tap|drag|swipe|grab|throw|moves?|loops?|responds?|hand tracking|controls?)\b/i;
+
 export default handler(async (body) => {
   const brief = typeof body.brief === 'string' ? body.brief.trim().slice(0, 4000) : '';
   const budget = Number(body.budget) || 0;
@@ -54,7 +56,12 @@ export default handler(async (body) => {
     m.criteria = (Array.isArray(m.criteria) ? m.criteria : [])
       .filter((c) => c && c.text)
       .slice(0, 5)
-      .map((c) => ({ text: c.text, check: (['page', 'image', 'manual'].includes(c.check) ? c.check : 'page') as 'page' | 'image' | 'manual' }));
+      .map((c) => {
+        let check = (['page', 'image', 'manual'].includes(c.check) ? c.check : 'page') as 'page' | 'image' | 'manual';
+        // a still screenshot can't prove behaviour over time — that's the client's test
+        if (check === 'image' && BEHAVIOUR.test(c.text)) check = 'manual';
+        return { text: c.text, check };
+      });
   });
   return { plan: { title: p.title || 'Project', summary: p.summary || '', currency, milestones: ms, risks: (p.risks || []).slice(0, 4) } satisfies Plan };
 });

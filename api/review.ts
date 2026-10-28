@@ -168,7 +168,11 @@ export default handler(async (body) => {
   // and never block a release; anything checkable that FAILS does.
   const kinds = checks.map((c, i) => (checks.length === m.criteria.length ? m.criteria[i].check : m.criteria.find((k) => k.text === c.criterion)?.check ?? 'page'));
   checks.forEach((c, i) => {
-    if (kinds[i] === 'manual' && c.status === 'unclear') c.evidence = `Client confirms this one. ${c.evidence}`.trim();
+    // the AI can't test [manual] things (controls, sound, handover) — they are always the client's call
+    if (kinds[i] === 'manual' && c.status !== 'pass') {
+      c.status = 'unclear';
+      c.evidence = `Client confirms this one. ${c.evidence}`.trim();
+    }
     // an empty HTML shell is not proof that the work is missing — it just can't be seen without running it
     if (spa && !image && c.status === 'fail') {
       c.status = 'unclear';
@@ -189,7 +193,8 @@ export default handler(async (body) => {
   const failed = auto.filter((c) => c.status === 'fail').length;
   const broken = page ? page.status === 0 || page.status >= 400 : false;
   const unclear = auto.length - passed - failed;
-  const verdict: Review['verdict'] = broken || (failed > 0 && passed === 0) ? 'reject' : failed || unclear ? 'changes' : 'approve';
+  // reject only when the link is broken or every checkable point clearly failed
+  const verdict: Review['verdict'] = broken || (auto.length > 0 && failed === auto.length) ? 'reject' : failed || unclear ? 'changes' : 'approve';
   const review: Review = {
     verdict,
     score: auto.length ? Math.round((passed / auto.length) * 100) : Math.max(0, Math.min(100, Math.round(Number(r.score) || 0))),

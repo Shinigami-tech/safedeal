@@ -11,6 +11,9 @@ let flash = '';
 let cfg: { paypalClientId: string; sandbox: boolean } | null = null;
 let ppLoading: Promise<void> | null = null;
 let confirmCancel = '';
+let selecting = false;
+let confirmDel = false;
+const selected = new Set<string>();
 
 const SAMPLE = {
   brief:
@@ -309,6 +312,30 @@ function criteriaChanged(d: Deal, text: string) {
   render();
 }
 
+/** Delete deals; any money still held in PayPal is released back to the client first (void). */
+async function deleteDeals(ids: string[]) {
+  const gone = deals.filter((d) => ids.includes(d.id));
+  let voided = 0;
+  for (const d of gone)
+    for (const m of d.milestones)
+      if (['held', 'submitted', 'reviewed'].includes(m.state) && m.pay.authorizationId) {
+        try {
+          await api('refund', { authorizationId: m.pay.authorizationId });
+          voided++;
+        } catch {
+          /* already expired/voided */
+        }
+      }
+  deals = deals.filter((d) => !ids.includes(d.id));
+  ids.forEach((id) => selected.delete(id));
+  persist();
+  confirmDel = false;
+  if (!deals.length) selecting = false;
+  toast(`Deleted ${gone.length} deal${gone.length === 1 ? '' : 's'}${voided ? ` · ${voided} PayPal hold${voided === 1 ? '' : 's'} cancelled, money returned` : ''}`);
+  if (route().startsWith('deal/')) go('');
+  else render();
+}
+
 const bothSigned = (d: Deal) => !!(d.signatures?.client && d.signatures?.freelancer);
 
 /** Old plain-text record (kept for reference; the UI uses the PDF version). */
@@ -387,15 +414,24 @@ function homeView() {
 
     ${
       deals.length
-        ? `<section class="list"><h3>Your deals</h3>${deals
+        ? `<section class="list">
+            <div class="list-h"><h3>Your deals</h3>${
+              selecting
+                ? `<div class="row-btns tight"><button class="btn small ghost" data-act="sel-all">${selected.size === deals.length ? 'Clear all' : 'Select all'}</button>
+                   <button class="btn small danger" data-act="sel-del" ${selected.size ? '' : 'disabled'}>${confirmDel ? `Sure? Delete ${selected.size}` : `🗑 Delete ${selected.size || ''}`}</button>
+                   <button class="btn small ghost" data-act="sel-done">Done</button></div>`
+                : `<button class="btn small ghost" data-act="sel-start">Select</button>`
+            }</div>
+            ${deals
             .map((d) => {
               const t = totals(d);
               const done = d.milestones.filter((m) => m.state === 'released').length;
               const next = d.milestones.find((m) => !['released', 'returned'].includes(m.state));
-              return `<a class="deal-row" href="#/deal/${d.id}">
-                <div><b>${esc(d.plan.title)}</b><span class="muted small">${done}/${d.milestones.length} milestones paid${next ? ` · next: ${esc(next.title)}` : ''}</span></div>
-                <div class="nums"><span class="pill held">${usd(t.held)} held</span><span class="pill paid">${usd(t.released)} paid</span></div>
-              </a>`;
+              const inner = `<div><b>${esc(d.plan.title)}</b><span class="muted small">${done}/${d.milestones.length} milestones paid${next ? ` · next: ${esc(next.title)}` : ''} · ${new Date(d.created).toLocaleDateString()}</span></div>
+                <div class="nums"><span class="pill held">${usd(t.held)} held</span><span class="pill paid">${usd(t.released)} paid</span></div>`;
+              return selecting
+                ? `<label class="deal-row sel ${selected.has(d.id) ? 'on' : ''}"><input type="checkbox" data-act="sel" data-id="${d.id}" ${selected.has(d.id) ? 'checked' : ''} />${inner}</label>`
+                : `<a class="deal-row" href="#/deal/${d.id}">${inner}</a>`;
             })
             .join('')}</section>`
         : ''
@@ -542,7 +578,7 @@ function dealView(d: Deal) {
   const who = { client: '👤', freelancer: '🛠', ai: '✨', paypal: '🅿️' } as const;
   return `
   <main class="deal">
-    <a class="back" href="#/">← All deals</a>
+    <div class="deal-top"><a class="back" href="#/">← All deals</a><button class="btn small ghost danger-t" data-act="del-deal">${confirmDel ? 'Sure? Delete this deal' : '🗑 Delete deal'}</button></div>
     <div class="deal-h">
       <div><h1>${esc(d.plan.title)}</h1><p class="lede">${esc(d.plan.summary)}</p></div>
       <div class="money">
@@ -639,6 +675,56 @@ app.addEventListener('click', (e) => {
       break;
     case 'evidence':
       if (d) evidence(d);
+      break;
+    case 'sel-start':
+      selecting = true;
+      selected.clear();
+      render();
+      break;
+    case 'sel-done':
+      selecting = false;
+      confirmDel = false;
+      selected.clear();
+      render();
+      break;
+    case 'sel':
+      if ((t as HTMLInputElement).checked) selected.add(t.dataset.id!);
+      else selected.delete(t.dataset.id!);
+      confirmDel = false;
+      render();
+      break;
+    case 'sel-all':
+      if (selected.size === deals.length) selected.clear();
+      else deals.forEach((x) => selected.add(x.id));
+      render();
+      break;
+    case 'sel-del':
+      if (!selected.size) break;
+      if (confirmDel) deleteDeals([...selected]);
+      else {
+        confirmDel = true;
+        render();
+        setTimeout(() => {
+          if (confirmDel) {
+            confirmDel = false;
+            render();
+          }
+        }, 4000);
+      }
+      break;
+    case 'del-deal':
+      if (!d) break;
+      if (confirmDel) deleteDeals([d.id]);
+      else {
+        confirmDel = true;
+        render();
+        setTimeout(() => {
+          if (confirmDel) {
+            confirmDel = false;
+            render();
+          }
+        }, 4000);
+      }
       break;
     case 'crit-del':
       if (d) {
