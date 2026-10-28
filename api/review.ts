@@ -20,6 +20,7 @@ interface Page {
   /** cleaned HTML of the body: tags + the attributes that matter for review */
   structure: string;
   css: string;
+  js: string;
 }
 
 const KEEP = /^(href|target|type|name|placeholder|alt|aria-label|required|id|lang|for|value|title|role|on[a-z]+)$/i;
@@ -92,10 +93,11 @@ async function readPage(raw: string): Promise<Page | null> {
       text: strip(html).slice(0, 4000),
       structure: simplify(html),
       css: Array.from(html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi), (m) => m[1]).join('\n').replace(/\s+/g, ' ').slice(0, 3000),
+      js: Array.from(html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi), (m) => m[1]).join('\n').replace(/\s+/g, ' ').slice(0, 3000),
     };
   } catch (e) {
     if (e instanceof HttpError) throw e;
-    return { url: u.toString(), status: 0, title: '', mobile: false, forms: 0, inputs: [], images: 0, links: [], headings: [], text: `(could not open the link: ${(e as Error).message})`, structure: '', css: '' };
+    return { url: u.toString(), status: 0, title: '', mobile: false, forms: 0, inputs: [], images: 0, links: [], headings: [], text: `(could not open the link: ${(e as Error).message})`, structure: '', css: '', js: '' };
   } finally {
     clearTimeout(timer);
   }
@@ -129,7 +131,7 @@ export default handler(async (body) => {
   const facts = page
     ? `DELIVERED PAGE (fetched just now)\nURL: ${page.url}\nHTTP status: ${page.status}\nTitle: ${page.title}\nMobile viewport meta: ${page.mobile ? 'yes' : 'no'}\n${spa ? 'NOTE: this page is rendered by JavaScript — the HTML below may not contain the real content.\n' : ''}` +
       `Forms: ${page.forms}\nForm fields: ${page.inputs.join(', ') || 'none'}\nImages: ${page.images}\nHeadings: ${page.headings.join(' | ')}\n` +
-      `Links: ${page.links.join(' | ')}\nVisible text: ${page.text}\n\nPAGE HTML (simplified, inline handlers kept):\n${page.structure}\n\nCSS:\n${page.css || '(none)'}`
+      `Links: ${page.links.join(' | ')}\nVisible text: ${page.text}\n\nPAGE HTML (simplified, inline handlers kept):\n${page.structure}\n\nCSS:\n${page.css || '(none)'}\n\nINLINE JAVASCRIPT (behaviour such as form validation and success messages):\n${page.js || '(none)'}`
     : 'No link was provided.';
 
   const content: Msg['content'] = [
