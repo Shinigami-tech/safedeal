@@ -1,6 +1,7 @@
 import './styles.css';
 import type { Plan, Review } from '../api/_types';
 import { dealFromPlan, loadDeals, loadRole, saveDeals, saveRole, type Deal, type DealMilestone, type Role } from './store';
+import { aiLang, lang, LANGS, setLang, t as tr, type Lang } from './i18n';
 
 /* ------------------------------------------------------------------ state */
 
@@ -14,6 +15,7 @@ let confirmCancel = '';
 let selecting = false;
 let confirmDel = false;
 const selected = new Set<string>();
+let lightbox = '';
 
 const SAMPLE = {
   brief:
@@ -33,9 +35,10 @@ const app = document.getElementById('app')!;
 const esc = (s: unknown) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 const usd = (v: number, cur = 'USD') => new Intl.NumberFormat('en-US', { style: 'currency', currency: cur }).format(v);
-const when = (t: number) => new Date(t).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+const loc = () => ({ en: 'en-US', ru: 'ru-RU', kk: 'kk-KZ' })[lang];
+const when = (t: number) => new Date(t).toLocaleString(loc(), { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 const day = (iso: string | null | undefined) =>
-  iso ? new Date(iso.length <= 10 ? iso + 'T12:00:00' : iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : '';
+  iso ? new Date(iso.length <= 10 ? iso + 'T12:00:00' : iso).toLocaleDateString(loc(), { day: 'numeric', month: 'short' }) : '';
 
 async function api<T>(name: string, body: unknown): Promise<T> {
   const res = await fetch(`/api/${name}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -139,9 +142,9 @@ async function mountButtons(d: Deal) {
             const r = await api<{ authorizationId: string; heldUntil: string | null; payer: string }>('authorize', { orderId: data.orderID });
             m.pay = { ...m.pay, authorizationId: r.authorizationId, heldUntil: r.heldUntil ?? undefined, payer: r.payer };
             m.state = 'held';
-            log(d, 'paypal', `${usd(m.amount, d.plan.currency)} held for "${m.title}" (authorization ${r.authorizationId})`);
+            log(d, 'paypal', tr('{x} held for "{m}" (authorization {id})', { x: usd(m.amount, d.plan.currency), m: m.title, id: r.authorizationId }));
             persist();
-            toast(`${usd(m.amount, d.plan.currency)} is now held by PayPal. The freelancer can start.`);
+            toast(tr('{x} is now held by PayPal. The freelancer can start.', { x: usd(m.amount, d.plan.currency) }));
           } catch (e) {
             toast(`PayPal: ${(e as Error).message}`);
           }
@@ -167,16 +170,18 @@ async function createDeal(form: HTMLFormElement) {
   busy.plan = true;
   render();
   try {
-    const { plan } = await api<{ plan: Plan }>('plan', { brief, budget, currency: 'USD', deadline });
+    const { plan } = await api<{ plan: Plan }>('plan', { brief, budget, currency: 'USD', deadline, lang: aiLang() });
     const d = dealFromPlan(plan, brief, payee);
-    log(d, 'client', `Created the deal for ${usd(budget)}`);
+    d.lang = lang;
+    d.log = [{ at: Date.now(), who: 'ai', text: tr('Planned {n} milestones with acceptance criteria', { n: plan.milestones.length }) }];
+    log(d, 'client', tr('Created the deal for {x}', { x: usd(budget) }));
     deals.unshift(d);
     persist();
     busy.plan = false;
     go('deal/' + d.id);
   } catch (e) {
     busy.plan = false;
-    toast(`Couldn't plan it: ${(e as Error).message}`);
+    toast(tr("Couldn't plan it: {e}", { e: (e as Error).message }));
   }
 }
 
@@ -197,10 +202,10 @@ async function submitWork(d: Deal, i: number, form: HTMLFormElement) {
   const notes = String(fd.get('notes') || '').trim();
   const files = (fd.getAll('shot') as File[]).filter((f) => f && f.size).slice(0, 3);
   const images = await Promise.all(files.map(fileToDataUrl));
-  if (!url && !images.length) return toast('Add a link to the work or a screenshot');
+  if (!url && !images.length) return toast(tr('Add a link to the work or a screenshot'));
   m.submissions.push({ url, notes, images, at: Date.now() });
   m.state = 'submitted';
-  log(d, 'freelancer', `Submitted "${m.title}"${url ? `: ${url}` : ''}`);
+  log(d, 'freelancer', `${tr('Submitted "{m}"', { m: m.title })}${url ? `: ${url}` : ''}`);
   persist();
   render();
   await review(d, i);
@@ -214,15 +219,15 @@ async function review(d: Deal, i: number) {
   try {
     // everything the AI already confirmed in earlier rounds carries over
     const earlier = m.reviews.flatMap((r) => r.checks.map((c, k) => ({ ...c, criterion: r.checks.length === m.criteria.length ? m.criteria[k].text : c.criterion }))).filter((c) => c.status === 'pass');
-    const { review } = await api<{ review: Review }>('review', { milestone: m, submission: sub, earlier });
+    const { review } = await api<{ review: Review }>('review', { milestone: m, submission: sub, earlier, lang: aiLang() });
     m.reviews.push(review);
     m.state = 'reviewed';
-    const label = { approve: 'recommends release', changes: 'asks for changes', reject: 'recommends rejecting' }[review.verdict];
-    log(d, 'ai', `Reviewed "${m.title}": ${review.score}% of criteria met — ${label}`);
+    const label = tr({ approve: 'recommends release', changes: 'asks for changes', reject: 'recommends rejecting' }[review.verdict]);
+    log(d, 'ai', tr('Reviewed "{m}": {s}% of criteria met — {v}', { m: m.title, s: review.score, v: label }));
     persist();
   } catch (e) {
     m.state = 'submitted';
-    toast(`Review failed: ${(e as Error).message}`);
+    toast(tr('Review failed: {e}', { e: (e as Error).message }));
   }
   busy['rev' + i] = false;
   render();
@@ -237,12 +242,12 @@ async function release(d: Deal, i: number) {
     const r = await api<{ captureId: string; status: string }>('release', { authorizationId: m.pay.authorizationId });
     m.pay.captureId = r.captureId;
     m.state = 'released';
-    log(d, 'client', `Accepted "${m.title}"`);
-    log(d, 'paypal', `${usd(m.amount, d.plan.currency)} released to the freelancer (capture ${r.captureId})`);
+    log(d, 'client', tr('Accepted "{m}"', { m: m.title }));
+    log(d, 'paypal', `${tr('{x} released to the freelancer (capture {id})', { x: usd(m.amount, d.plan.currency), id: r.captureId })} — "${m.title}"`);
     persist();
-    toast(`Paid! ${usd(m.amount, d.plan.currency)} sent to the freelancer.`);
+    toast(tr('Paid! {x} sent to the freelancer.', { x: usd(m.amount, d.plan.currency) }));
   } catch (e) {
-    toast(`Couldn't release: ${(e as Error).message}`);
+    toast(tr("Couldn't release: {e}", { e: (e as Error).message }));
   }
   busy['rel' + i] = false;
   render();
@@ -256,10 +261,10 @@ async function cancelHold(d: Deal, i: number) {
   try {
     await api('refund', { authorizationId: m.pay.authorizationId });
     m.state = 'returned';
-    log(d, 'paypal', `Hold voided — ${usd(m.amount, d.plan.currency)} stays with the client`);
+    log(d, 'paypal', tr('Hold voided — {x} stays with the client', { x: usd(m.amount, d.plan.currency) }));
     persist();
   } catch (e) {
-    toast(`Couldn't cancel: ${(e as Error).message}`);
+    toast(tr("Couldn't cancel: {e}", { e: (e as Error).message }));
   }
   busy['ref' + i] = false;
   confirmCancel = '';
@@ -270,10 +275,10 @@ function requestChanges(d: Deal, i: number) {
   const m = d.milestones[i];
   const r = m.reviews[m.reviews.length - 1];
   m.state = 'held';
-  log(d, 'client', `Requested changes on "${m.title}"${r?.fixes.length ? `: ${r.fixes.join('; ')}` : ''}`);
+  log(d, 'client', `${tr('Requested changes on "{m}"', { m: m.title })}${r?.fixes.length ? `: ${r.fixes.join('; ')}` : ''}`);
   persist();
   render();
-  toast('Sent back to the freelancer with the AI’s fix list.');
+  toast(tr('Sent back to the freelancer with the AI’s fix list.'));
 }
 
 async function pdf(kind: 'agreement' | 'evidence' | 'receipt', d: Deal, i = 0) {
@@ -282,9 +287,9 @@ async function pdf(kind: 'agreement' | 'evidence' | 'receipt', d: Deal, i = 0) {
   try {
     const m = await import('./pdf');
     const bytes = kind === 'agreement' ? await m.agreementPdf(d) : kind === 'evidence' ? await m.evidencePdf(d) : await m.receiptPdf(d, i);
-    toast(`PDF downloaded (${Math.max(1, Math.round(bytes / 1024))} KB)`);
+    toast(tr('PDF downloaded ({n} KB)', { n: Math.max(1, Math.round(bytes / 1024)) }));
   } catch (e) {
-    toast(`Couldn't make the PDF: ${(e as Error).message}`);
+    toast(tr("Couldn't make the PDF: {e}", { e: (e as Error).message }));
   }
   busy['pdf' + kind + i] = false;
   render();
@@ -292,12 +297,12 @@ async function pdf(kind: 'agreement' | 'evidence' | 'receipt', d: Deal, i = 0) {
 
 function sign(d: Deal, form: HTMLFormElement) {
   const name = String(new FormData(form).get('signname') || '').trim();
-  if (name.length < 3) return toast('Type your full name to sign');
+  if (name.length < 3) return toast(tr('Type your full name to sign'));
   d.signatures = { ...d.signatures, [role]: { name, at: Date.now() } };
-  log(d, role, `${name} signed the agreement as ${role}`);
+  log(d, role, tr('{n} signed the agreement as {r}', { n: name, r: tr(role) }));
   persist();
   render();
-  toast(bothSigned(d) ? 'Both sides signed — the client can now fund the first milestone.' : 'Signed. Waiting for the other side.');
+  toast(tr(bothSigned(d) ? 'Both sides signed — the client can now fund the first milestone.' : 'Signed. Waiting for the other side.'));
 }
 
 /** Changing the terms after one side signed invalidates that signature — both must agree to the same text. */
@@ -305,8 +310,8 @@ function criteriaChanged(d: Deal, text: string) {
   log(d, role, text);
   if (d.signatures?.client || d.signatures?.freelancer) {
     d.signatures = {};
-    log(d, 'ai', 'Terms changed — signatures cleared, both sides sign again');
-    toast('Terms changed, so both sides need to sign again.');
+    log(d, 'ai', tr('Terms changed — signatures cleared, both sides sign again'));
+    toast(tr('Terms changed, so both sides need to sign again.'));
   }
   persist();
   render();
@@ -331,7 +336,7 @@ async function deleteDeals(ids: string[]) {
   persist();
   confirmDel = false;
   if (!deals.length) selecting = false;
-  toast(`Deleted ${gone.length} deal${gone.length === 1 ? '' : 's'}${voided ? ` · ${voided} PayPal hold${voided === 1 ? '' : 's'} cancelled, money returned` : ''}`);
+  toast(`${tr('Deleted {n}', { n: gone.length })}${voided ? ` · ${tr('{n} PayPal holds cancelled, money returned', { n: voided })}` : ''}`);
   if (route().startsWith('deal/')) go('');
   else render();
 }
@@ -374,11 +379,12 @@ function header() {
   <header class="top">
     <a class="brand" href="#/"><img src="/favicon.svg" alt="" /><span>SafeDeal</span></a>
     <nav>
-      <a href="#/" class="${r === '' ? 'on' : ''}">Deals</a>
+      <a href="#/" class="${r === '' ? 'on' : ''}">${tr('Deals')}</a>
       <div class="roles" role="tablist" aria-label="View as">
-        <button data-act="role" data-r="client" class="${role === 'client' ? 'on' : ''}">👤 Client</button>
-        <button data-act="role" data-r="freelancer" class="${role === 'freelancer' ? 'on' : ''}">🛠 Freelancer</button>
+        <button data-act="role" data-r="client" class="${role === 'client' ? 'on' : ''}">👤 ${tr('Client')}</button>
+        <button data-act="role" data-r="freelancer" class="${role === 'freelancer' ? 'on' : ''}">🛠 ${tr('Freelancer')}</button>
       </div>
+      <div class="langs" aria-label="Language">${LANGS.map((l) => `<button data-act="lang" data-l="${l.id}" class="${lang === l.id ? 'on' : ''}">${l.label}</button>`).join('')}</div>
     </nav>
   </header>`;
 }
@@ -387,60 +393,60 @@ function homeView() {
   return `
   <main class="home">
     <section class="hero">
-      <p class="eyebrow">AI escrow for freelancers · powered by PayPal</p>
-      <h1>Pay only for work<br/><em>that's actually done.</em></h1>
-      <p class="lede">Describe the job. AI turns it into milestones with clear acceptance criteria. The client's money is held by PayPal, an AI reviewer checks the delivered work against the criteria, and the money is released only when it matches.</p>
+      <p class="eyebrow">${tr('AI escrow for freelancers · powered by PayPal')}</p>
+      <h1>${tr('Pay only for work')}<br/><em>${tr("that's actually done.")}</em></h1>
+      <p class="lede">${tr("Describe the job. AI turns it into milestones with clear acceptance criteria. The client's money is held by PayPal, an AI reviewer checks the delivered work against the criteria, and the money is released only when it matches.")}</p>
     </section>
 
     <section class="flow">
-      <div><b>1</b><span>Describe the job</span></div><i>→</i>
-      <div><b>2</b><span>Money held by PayPal</span></div><i>→</i>
-      <div><b>3</b><span>AI checks the work</span></div><i>→</i>
-      <div><b>4</b><span>Released to freelancer</span></div>
+      <div><b>1</b><span>${tr('Describe the job')}</span></div><i>→</i>
+      <div><b>2</b><span>${tr('Money held by PayPal')}</span></div><i>→</i>
+      <div><b>3</b><span>${tr('AI checks the work')}</span></div><i>→</i>
+      <div><b>4</b><span>${tr('Released to freelancer')}</span></div>
     </section>
 
     <form class="card new" data-form="new">
-      <div class="card-h"><h3>New deal</h3><button type="button" class="link" data-act="sample">Use the coffee-shop example</button></div>
-      <label>What needs to be done?
-        <textarea name="brief" rows="4" required minlength="10" placeholder="e.g. A landing page for my bakery with a menu, prices, opening hours and an order form. Must work on phones."></textarea>
+      <div class="card-h"><h3>${tr('New deal')}</h3><button type="button" class="link" data-act="sample">${tr('Use the coffee-shop example')}</button></div>
+      <label>${tr('What needs to be done?')}
+        <textarea name="brief" rows="4" required minlength="10" placeholder="${esc(tr('e.g. A landing page for my bakery with a menu, prices, opening hours and an order form. Must work on phones.'))}"></textarea>
       </label>
       <div class="row3">
-        <label>Budget (USD)<input name="budget" type="number" min="1" step="1" required placeholder="300" /></label>
-        <label>Deadline<input name="deadline" type="date" /></label>
-        <label>Freelancer's PayPal email <span class="muted small">(optional)</span><input name="payee" type="email" placeholder="freelancer@example.com" /></label>
+        <label>${tr('Budget (USD)')}<input name="budget" type="number" min="1" step="1" required placeholder="300" /></label>
+        <label>${tr('Deadline')}<input name="deadline" type="date" /></label>
+        <label>${tr("Freelancer's PayPal email")} <span class="muted small">${tr('(optional)')}</span><input name="payee" type="email" placeholder="freelancer@example.com" /></label>
       </div>
-      <button class="btn primary big" ${busy.plan ? 'disabled' : ''}>${busy.plan ? '<span class="spin"></span> AI is planning milestones…' : '✨ Plan the deal with AI'}</button>
+      <button class="btn primary big" ${busy.plan ? 'disabled' : ''}>${busy.plan ? `<span class="spin"></span> ${tr('AI is planning milestones…')}` : `✨ ${tr('Plan the deal with AI')}`}</button>
     </form>
 
     ${
       deals.length
         ? `<section class="list">
-            <div class="list-h"><h3>Your deals</h3>${
+            <div class="list-h"><h3>${tr('Your deals')}</h3>${
               selecting
-                ? `<div class="row-btns tight"><button class="btn small ghost" data-act="sel-all">${selected.size === deals.length ? 'Clear all' : 'Select all'}</button>
-                   <button class="btn small danger" data-act="sel-del" ${selected.size ? '' : 'disabled'}>${confirmDel ? `Sure? Delete ${selected.size}` : `🗑 Delete ${selected.size || ''}`}</button>
-                   <button class="btn small ghost" data-act="sel-done">Done</button></div>`
-                : `<button class="btn small ghost" data-act="sel-start">Select</button>`
+                ? `<div class="row-btns tight"><button class="btn small ghost" data-act="sel-all">${tr(selected.size === deals.length ? 'Clear all' : 'Select all')}</button>
+                   <button class="btn small danger" data-act="sel-del" ${selected.size ? '' : 'disabled'}>${confirmDel ? tr('Sure? Delete {n}', { n: selected.size }) : `🗑 ${tr('Delete')} ${selected.size || ''}`}</button>
+                   <button class="btn small ghost" data-act="sel-done">${tr('Done')}</button></div>`
+                : `<button class="btn small ghost" data-act="sel-start">${tr('Select')}</button>`
             }</div>
             ${deals
-            .map((d) => {
-              const t = totals(d);
-              const done = d.milestones.filter((m) => m.state === 'released').length;
-              const next = d.milestones.find((m) => !['released', 'returned'].includes(m.state));
-              const inner = `<div><b>${esc(d.plan.title)}</b><span class="muted small">${done}/${d.milestones.length} milestones paid${next ? ` · next: ${esc(next.title)}` : ''} · ${new Date(d.created).toLocaleDateString()}</span></div>
-                <div class="nums"><span class="pill held">${usd(t.held)} held</span><span class="pill paid">${usd(t.released)} paid</span></div>`;
-              return selecting
-                ? `<label class="deal-row sel ${selected.has(d.id) ? 'on' : ''}"><input type="checkbox" data-act="sel" data-id="${d.id}" ${selected.has(d.id) ? 'checked' : ''} />${inner}</label>`
-                : `<a class="deal-row" href="#/deal/${d.id}">${inner}</a>`;
-            })
-            .join('')}</section>`
+              .map((d) => {
+                const t = totals(d);
+                const done = d.milestones.filter((m) => m.state === 'released').length;
+                const next = d.milestones.find((m) => !['released', 'returned'].includes(m.state));
+                const inner = `<div><b>${esc(d.plan.title)}</b><span class="muted small">${tr('{a}/{b} milestones paid', { a: done, b: d.milestones.length })}${next ? ` · ${tr('next: {x}', { x: esc(next.title) })}` : ''} · ${new Date(d.created).toLocaleDateString(loc())}</span></div>
+                <div class="nums"><span class="pill held">${tr('{x} held', { x: usd(t.held) })}</span><span class="pill paid">${tr('{x} paid', { x: usd(t.released) })}</span></div>`;
+                return selecting
+                  ? `<label class="deal-row sel ${selected.has(d.id) ? 'on' : ''}"><input type="checkbox" data-act="sel" data-id="${d.id}" ${selected.has(d.id) ? 'checked' : ''} />${inner}</label>`
+                  : `<a class="deal-row" href="#/deal/${d.id}">${inner}</a>`;
+              })
+              .join('')}</section>`
         : ''
     }
 
     <section class="why">
-      <div><h4>For freelancers</h4><p>No more "I'll pay next week". The money is already reserved before you start.</p></div>
-      <div><h4>For clients</h4><p>Nothing is paid until the work passes the checks you agreed on — and you always have the final say.</p></div>
-      <div><h4>For disputes</h4><p>Every step is logged with AI evidence, ready for a PayPal dispute if it ever comes to that.</p></div>
+      <div><h4>${tr('For freelancers')}</h4><p>${tr('No more "I\'ll pay next week". The money is already reserved before you start.')}</p></div>
+      <div><h4>${tr('For clients')}</h4><p>${tr('Nothing is paid until the work passes the checks you agreed on — and you always have the final say.')}</p></div>
+      <div><h4>${tr('For disputes')}</h4><p>${tr('Every step is logged with AI evidence, ready for a PayPal dispute if it ever comes to that.')}</p></div>
     </section>
   </main>`;
 }
@@ -456,26 +462,39 @@ const STEPS: { key: DealMilestone['state'][]; label: string }[] = [
 function stepper(m: DealMilestone) {
   const idx = STEPS.findIndex((s) => s.key.includes(m.state));
   return `<ol class="stepper">${STEPS.map(
-    (s, i) => `<li class="${i < idx ? 'done' : i === idx ? 'now' : ''} ${m.state === 'returned' && i === 4 ? 'void' : ''}"><span></span>${i === 4 && m.state === 'returned' ? 'Returned' : s.label}</li>`,
+    (s, i) => `<li class="${i < idx ? 'done' : i === idx ? 'now' : ''} ${m.state === 'returned' && i === 4 ? 'void' : ''}"><span></span>${tr(i === 4 && m.state === 'returned' ? 'Returned' : s.label)}</li>`,
   ).join('')}</ol>`;
+}
+
+/** What the freelancer actually sent — shown next to the AI verdict so the client can judge for themselves. */
+function deliveryBlock(m: DealMilestone) {
+  const sub = m.submissions[m.submissions.length - 1];
+  if (!sub) return '';
+  const shots = [...(sub.images ?? []), ...(sub.image ? [sub.image] : [])];
+  return `<div class="delivery">
+    <div class="dv-h"><b>📦 ${tr('What the freelancer delivered')}</b><span class="muted small">${tr('Submission {n}', { n: m.submissions.length })} · ${when(sub.at)}</span></div>
+    ${sub.url ? `<a class="dv-link" href="${esc(sub.url)}" target="_blank" rel="noopener">🔗 ${esc(sub.url)}</a>` : `<p class="muted small">${tr('No link — screenshots only')}</p>`}
+    <p class="dv-note">${sub.notes ? `“${esc(sub.notes)}”` : `<span class="muted small">${tr('No note')}</span>`}</p>
+    ${shots.length ? `<div class="dv-shots">${shots.map((src, k) => `<img src="${src}" alt="Screenshot ${k + 1}" data-act="zoom" data-k="${k}" />`).join('')}</div>` : ''}
+  </div>`;
 }
 
 function reviewBlock(r: Review) {
   const icon = { pass: '✓', fail: '✕', unclear: '?' } as const;
   const clientOnly = r.counts?.checkable === 0;
-  const label = clientOnly ? 'Your call — test it yourself' : { approve: 'Ready to release', changes: 'Changes needed', reject: 'Not delivered' }[r.verdict];
+  const label = tr(clientOnly ? 'Your call — test it yourself' : { approve: 'Ready to release', changes: 'Changes needed', reject: 'Not delivered' }[r.verdict]);
   return `<div class="review ${r.verdict}">
     <div class="rv-h">
       <div class="ring" style="--p:${clientOnly ? 0 : r.score}"><span>${clientOnly ? '—' : r.score + '%'}</span></div>
       <div><span class="tag ${clientOnly ? 'changes' : r.verdict}">${label}</span>${
-        r.counts ? `<span class="muted small counts">${r.counts.confirmed} of ${r.counts.checkable} AI-checkable point${r.counts.checkable === 1 ? '' : 's'} confirmed${r.counts.client ? ` · ${r.counts.client} for the client to check` : ''}</span>` : ''
+        r.counts ? `<span class="muted small counts">${tr('{a} of {b} AI-checkable points confirmed', { a: r.counts.confirmed, b: r.counts.checkable })}${r.counts.client ? ` · ${tr('{n} for the client to check', { n: r.counts.client })}` : ''}</span>` : ''
       }<p>${esc(r.summary)}</p>
-      ${r.observed ? `<p class="muted small">Opened <a href="${esc(r.observed.url)}" target="_blank" rel="noopener">${esc(r.observed.title || r.observed.url)}</a> · HTTP ${r.observed.status} · ${r.observed.forms} form${r.observed.forms === 1 ? '' : 's'} · ${r.observed.images} images · ${r.observed.mobile ? 'mobile-ready' : 'no mobile viewport'}</p>` : ''}</div>
+      ${r.observed ? `<p class="muted small">${tr('Opened')} <a href="${esc(r.observed.url)}" target="_blank" rel="noopener">${esc(r.observed.title || r.observed.url)}</a> · HTTP ${r.observed.status} · ${tr('{n} forms', { n: r.observed.forms })} · ${tr('{n} images', { n: r.observed.images })} · ${tr(r.observed.mobile ? 'mobile-ready' : 'no mobile viewport')}</p>` : ''}</div>
     </div>
     <ul class="checks">${r.checks
-      .map((c) => `<li class="${c.status}"><span class="ck">${icon[c.status]}</span><div><b>${esc(c.criterion)}</b><p>${esc(c.evidence)}</p></div></li>`)
+      .map((c) => `<li class="${c.status}"><span class="ck">${icon[c.status]}</span><div><b>${esc(c.criterion.replace(/^\[(page|image|manual)\]\s*/i, ''))}</b><p>${esc(c.evidence)}</p></div></li>`)
       .join('')}</ul>
-    ${r.fixes.length ? `<div class="fixes"><b>To fix:</b><ul>${r.fixes.map((f) => `<li>${esc(f)}</li>`).join('')}</ul></div>` : ''}
+    ${r.fixes.length ? `<div class="fixes"><b>${tr('To fix:')}</b><ul>${r.fixes.map((f) => `<li>${esc(f)}</li>`).join('')}</ul></div>` : ''}
   </div>`;
 }
 
@@ -483,71 +502,73 @@ function milestoneCard(d: Deal, m: DealMilestone, i: number) {
   const cur = d.plan.currency;
   const last = m.reviews[m.reviews.length - 1];
   const sub = m.submissions[m.submissions.length - 1];
+  const amt = usd(m.amount, cur);
   let action = '';
 
   if (m.state === 'draft' && !bothSigned(d)) {
-    action = `<div class="act wait">✍️ Both sides sign the agreement above before money is held.</div>`;
+    action = `<div class="act wait">✍️ ${tr('Both sides sign the agreement above before money is held.')}</div>`;
   } else if (m.state === 'draft') {
     action =
       role === 'client'
-        ? `<div class="act"><p><b>Fund this milestone.</b> ${usd(m.amount, cur)} will be <b>held</b> by PayPal — not paid — until you accept the work.</p>
-           ${busy['hold' + i] ? '<p><span class="spin"></span> Holding the money…</p>' : `<div class="pp" data-pp="${i}"><span class="muted small">Loading PayPal…</span></div>`}
-           <p class="muted small">Sandbox: log in with a PayPal sandbox <b>personal</b> test account.</p></div>`
-        : `<div class="act wait">⏳ Waiting for the client to put ${usd(m.amount, cur)} on hold. Don't start before it's held.</div>`;
+        ? `<div class="act"><p><b>${tr('Fund this milestone.')}</b> ${tr('{x} will be held by PayPal — not paid — until you accept the work.', { x: amt })}</p>
+           ${busy['hold' + i] ? `<p><span class="spin"></span> ${tr('Holding the money…')}</p>` : `<div class="pp" data-pp="${i}"><span class="muted small">${tr('Loading PayPal…')}</span></div>`}
+           <p class="muted small">${tr('Sandbox: log in with a PayPal sandbox personal test account.')}</p></div>`
+        : `<div class="act wait">⏳ ${tr("Waiting for the client to put {x} on hold. Don't start before it's held.", { x: amt })}</div>`;
   } else if (m.state === 'held') {
-    const fixes = last && last.fixes.length ? `<div class="fixes"><b>Client asked for changes:</b><ul>${last.fixes.map((f) => `<li>${esc(f)}</li>`).join('')}</ul></div>` : '';
+    const fixes = last && last.fixes.length ? `<div class="fixes"><b>${tr('Client asked for changes:')}</b><ul>${last.fixes.map((f) => `<li>${esc(f)}</li>`).join('')}</ul></div>` : '';
     action =
       role === 'freelancer'
         ? `${fixes}<form class="act submit" data-form="submit" data-i="${i}">
-            <p><b>💰 ${usd(m.amount, cur)} is held for you.</b> Deliver the work and the AI will check it against the criteria.</p>
-            <label>Link to the work<input name="url" placeholder="https://your-delivery.com" value="${esc(sub?.url ?? '')}" /></label>
-            <div class="demo-links">Demo delivery: <button type="button" class="link" data-act="demo" data-v="1" data-i="${i}">v1 (unfinished)</button> · <button type="button" class="link" data-act="demo" data-v="2" data-i="${i}">v2 (finished)</button></div>
-            <label>Note for the client<input name="notes" placeholder="What did you do?" /></label>
-            <label>Screenshots <span class="muted small">(up to 3 — needed for games, 3D/VR and apps; the AI looks at them)</span><input name="shot" type="file" accept="image/*" multiple /></label>
-            <button class="btn primary">Submit for review</button>
+            <p><b>💰 ${tr('{x} is held for you.', { x: amt })}</b> ${tr('Deliver the work and the AI will check it against the criteria.')}</p>
+            <label>${tr('Link to the work')}<input name="url" placeholder="https://your-delivery.com" value="${esc(sub?.url ?? '')}" /></label>
+            <div class="demo-links">${tr('Demo delivery:')} <button type="button" class="link" data-act="demo" data-v="1" data-i="${i}">${tr('v1 (unfinished)')}</button> · <button type="button" class="link" data-act="demo" data-v="2" data-i="${i}">${tr('v2 (finished)')}</button></div>
+            <label>${tr('Note for the client')}<input name="notes" placeholder="${esc(tr('What did you do?'))}" /></label>
+            <label>${tr('Screenshots')} <span class="muted small">${tr('(up to 3 — needed for games, 3D/VR and apps; the AI looks at them)')}</span><input name="shot" type="file" accept="image/*" multiple /></label>
+            <button class="btn primary">${tr('Submit for review')}</button>
           </form>`
-        : `${fixes}<div class="act wait">💰 <b>${usd(m.amount, cur)} held by PayPal</b>${m.pay.heldUntil ? ` until ${day(m.pay.heldUntil)}` : ''}. The freelancer is working on it.
-            <div class="row-btns"><button class="btn small ghost" data-act="cancel" data-i="${i}">${confirmCancel === d.id + i ? 'Sure? Return the money' : 'Cancel & return money'}</button></div></div>`;
+        : `${fixes}<div class="act wait">💰 <b>${tr('{x} held by PayPal', { x: amt })}</b>${m.pay.heldUntil ? ` ${tr('until {d}', { d: day(m.pay.heldUntil) })}` : ''}. ${tr('The freelancer is working on it.')}
+            <div class="row-btns"><button class="btn small ghost" data-act="cancel" data-i="${i}">${tr(confirmCancel === d.id + i ? 'Sure? Return the money' : 'Cancel & return money')}</button></div></div>`;
   } else if (m.state === 'submitted') {
-    action = `<div class="act wait">${busy['rev' + i] ? '<span class="spin"></span> <b>AI reviewer is opening the delivery and checking every criterion…</b>' : `Delivered. <button class="btn small" data-act="review" data-i="${i}">Run AI review</button>`}</div>`;
+    action = `${deliveryBlock(m)}<div class="act wait">${busy['rev' + i] ? `<span class="spin"></span> <b>${tr('AI reviewer is opening the delivery and checking every criterion…')}</b>` : `${tr('Delivered')}. <button class="btn small" data-act="review" data-i="${i}">${tr('Run AI review')}</button>`}</div>`;
   } else if (m.state === 'reviewed' && last) {
-    action = `${reviewBlock(last)}
+    action = `${deliveryBlock(m)}${reviewBlock(last)}
       ${
         role === 'client'
           ? `<div class="row-btns">
-              <button class="btn ${last.verdict === 'approve' ? 'primary' : ''}" data-act="release" data-i="${i}" ${busy['rel' + i] ? 'disabled' : ''}>${busy['rel' + i] ? 'Releasing…' : `✓ Accept & release ${usd(m.amount, cur)}`}</button>
-              <button class="btn ${last.verdict === 'approve' ? '' : 'primary'}" data-act="changes" data-i="${i}">↺ Request changes</button>
-              <button class="btn ghost" data-act="cancel" data-i="${i}">${confirmCancel === d.id + i ? 'Sure? Return the money' : 'Cancel & return money'}</button>
+              <button class="btn ${last.verdict === 'approve' ? 'primary' : ''}" data-act="release" data-i="${i}" ${busy['rel' + i] ? 'disabled' : ''}>${busy['rel' + i] ? tr('Releasing…') : `✓ ${tr('Accept & release {x}', { x: amt })}`}</button>
+              <button class="btn ${last.verdict === 'approve' ? '' : 'primary'}" data-act="changes" data-i="${i}">↺ ${tr('Request changes')}</button>
+              <button class="btn ghost" data-act="cancel" data-i="${i}">${tr(confirmCancel === d.id + i ? 'Sure? Return the money' : 'Cancel & return money')}</button>
             </div>
-            ${last.verdict !== 'approve' ? '<p class="muted small">The AI recommends changes, but you decide.</p>' : ''}`
-          : `<div class="act wait">The client is deciding. ${last.verdict === 'approve' ? 'The AI recommends releasing the money.' : 'You will see the fix list if changes are requested.'}</div>`
+            ${last.verdict !== 'approve' ? `<p class="muted small">${tr('The AI recommends changes, but you decide.')}</p>` : ''}`
+          : `<div class="act wait">${tr('The client is deciding.')} ${tr(last.verdict === 'approve' ? 'The AI recommends releasing the money.' : 'You will see the fix list if changes are requested.')}</div>`
       }`;
   } else if (m.state === 'released') {
-    action = `<div class="act ok">✓ <b>${usd(m.amount, cur)} paid to the freelancer</b> via PayPal${m.pay.captureId ? ` · <span class="mono">${esc(m.pay.captureId)}</span>` : ''}
-      <div class="row-btns"><button class="btn small" data-act="pdf" data-k="receipt" data-i="${i}">${busy['pdfreceipt' + i] ? 'Making PDF…' : '⬇ Receipt (PDF)'}</button></div></div>`;
+    action = `<div class="act ok">✓ <b>${tr('{x} paid to the freelancer', { x: amt })}</b> ${tr('via PayPal')}${m.pay.captureId ? ` · <span class="mono">${esc(m.pay.captureId)}</span>` : ''}
+      <div class="row-btns"><button class="btn small" data-act="pdf" data-k="receipt" data-i="${i}">${busy['pdfreceipt' + i] ? tr('Making PDF…') : `⬇ ${tr('Receipt (PDF)')}`}</button></div></div>`;
   } else if (m.state === 'returned') {
-    action = `<div class="act void">↩ Hold cancelled — ${usd(m.amount, cur)} was never taken from the client.</div>`;
+    action = `<div class="act void">↩ ${tr('Hold cancelled — {x} was never taken from the client.', { x: amt })}</div>`;
   }
 
-  const results = last ? new Map(last.checks.map((c) => [c.criterion, c.status])) : null;
+  const results = last ? new Map(last.checks.map((c, k) => [last.checks.length === m.criteria.length ? m.criteria[k].text : c.criterion, c.status])) : null;
   const editable = m.state === 'draft' && !bothSigned(d);
+  const how = { page: 'checked via page', image: 'checked via screenshot', manual: 'checked by the client' } as const;
   return `
   <article class="card ms ${m.state}">
     <div class="ms-h">
-      <div><span class="muted small">Milestone ${i + 1}${m.due ? ` · due ${day(m.due)}` : ''}</span><h3>${esc(m.title)}</h3></div>
-      <div class="amt">${usd(m.amount, cur)}</div>
+      <div><span class="muted small">${tr('Milestone {n}', { n: i + 1 })}${m.due ? ` · ${tr('due {d}', { d: day(m.due) })}` : ''}</span><h3>${esc(m.title)}</h3></div>
+      <div class="amt">${amt}</div>
     </div>
     ${stepper(m)}
-    <div class="crit"><h4>Acceptance criteria${editable ? ' <span class="muted small">— edit before signing</span>' : ''}</h4><ul>${m.criteria
+    <div class="crit"><h4>${tr('Acceptance criteria')}${editable ? ` <span class="muted small">${tr('— edit before signing')}</span>` : ''}</h4><ul>${m.criteria
       .map((c, k) => {
         const st = results?.get(c.text);
-        return `<li class="${st ?? ''}"><span class="kind" title="checked via ${c.check}">${c.check === 'page' ? '🔗' : c.check === 'image' ? '🖼' : '✋'}</span><span class="ct">${esc(c.text)}</span>${
-          editable ? `<button class="x" data-act="crit-del" data-i="${i}" data-c="${k}" title="Remove">✕</button>` : ''
+        return `<li class="${st ?? ''}"><span class="kind" title="${esc(tr(how[c.check]))}">${c.check === 'page' ? '🔗' : c.check === 'image' ? '🖼' : '✋'}</span><span class="ct">${esc(c.text)}</span>${
+          editable ? `<button class="x" data-act="crit-del" data-i="${i}" data-c="${k}" title="${esc(tr('Remove'))}">✕</button>` : ''
         }</li>`;
       })
       .join('')}</ul>${
       editable
-        ? `<form class="crit-add" data-form="crit-add" data-i="${i}"><input name="crit" placeholder="Add a criterion, e.g. “There is a contact form with name, email and message”" /><button class="btn small">+ Add</button></form>`
+        ? `<form class="crit-add" data-form="crit-add" data-i="${i}"><input name="crit" placeholder="${esc(tr('Add a criterion, e.g. “There is a contact form with name, email and message”'))}" /><button class="btn small">+ ${tr('Add')}</button></form>`
         : ''
     }</div>
     ${action}
@@ -559,17 +580,17 @@ function agreementCard(d: Deal) {
   const mine = sig[role];
   const row = (who: Role, label: string) => {
     const x = sig[who];
-    return `<div class="sig ${x ? 'done' : ''}"><span class="muted small">${label}</span>${x ? `<b class="sig-name">${esc(x.name)}</b><span class="muted small">signed ${new Date(x.at).toLocaleString()}</span>` : '<span class="muted">Not signed yet</span>'}</div>`;
+    return `<div class="sig ${x ? 'done' : ''}"><span class="muted small">${label}</span>${x ? `<b class="sig-name">${esc(x.name)}</b><span class="muted small">${tr('signed {d}', { d: new Date(x.at).toLocaleString(loc()) })}</span>` : `<span class="muted">${tr('Not signed yet')}</span>`}</div>`;
   };
   return `<section class="card agreement">
-    <div class="card-h"><h3>📄 Deal agreement</h3><button class="btn small" data-act="pdf" data-k="agreement">${busy.pdfagreement0 ? 'Making PDF…' : '⬇ Agreement (PDF)'}</button></div>
-    <p class="muted small">Scope, milestones, acceptance criteria and payment rules. Both sides sign before any money is held.</p>
-    <div class="sigs">${row('client', '👤 Client')}${row('freelancer', '🛠 Freelancer')}</div>
+    <div class="card-h"><h3>📄 ${tr('Deal agreement')}</h3><button class="btn small" data-act="pdf" data-k="agreement">${busy.pdfagreement0 ? tr('Making PDF…') : `⬇ ${tr('Agreement (PDF)')}`}</button></div>
+    <p class="muted small">${tr('Scope, milestones, acceptance criteria and payment rules. Both sides sign before any money is held.')}</p>
+    <div class="sigs">${row('client', `👤 ${tr('Client')}`)}${row('freelancer', `🛠 ${tr('Freelancer')}`)}</div>
     ${
       mine
         ? ''
-        : `<form class="sign" data-form="sign"><input name="signname" placeholder="Type your full name to sign as ${role}" autocomplete="name" />
-           <button class="btn primary">✍️ I agree & sign</button></form>`
+        : `<form class="sign" data-form="sign"><input name="signname" placeholder="${esc(tr('Type your full name to sign as {r}', { r: tr(role) }))}" autocomplete="name" />
+           <button class="btn primary">✍️ ${tr('I agree & sign')}</button></form>`
     }
   </section>`;
 }
@@ -577,38 +598,98 @@ function agreementCard(d: Deal) {
 function dealView(d: Deal) {
   const t = totals(d);
   const who = { client: '👤', freelancer: '🛠', ai: '✨', paypal: '🅿️' } as const;
+  const langName = LANGS.find((l) => l.id === lang)!;
+  const translated = d.lang === lang || (!d.lang && lang === 'en');
   return `
   <main class="deal">
-    <div class="deal-top"><a class="back" href="#/">← All deals</a><button class="btn small ghost danger-t" data-act="del-deal">${confirmDel ? 'Sure? Delete this deal' : '🗑 Delete deal'}</button></div>
+    <div class="deal-top"><a class="back" href="#/">← ${tr('All deals')}</a><div class="row-btns tight">${
+      translated ? '' : `<button class="btn small" data-act="translate" ${busy.translate ? 'disabled' : ''}>${busy.translate ? `<span class="spin"></span> ${tr('Translating…')}` : `🌐 ${tr('Translate this deal into {l}', { l: langName.label })}`}</button>`
+    }<button class="btn small ghost danger-t" data-act="del-deal">${confirmDel ? tr('Sure? Delete this deal') : `🗑 ${tr('Delete deal')}`}</button></div></div>
     <div class="deal-h">
       <div><h1>${esc(d.plan.title)}</h1><p class="lede">${esc(d.plan.summary)}</p></div>
       <div class="money">
-        <div><span>Total</span><b>${usd(t.total, d.plan.currency)}</b></div>
-        <div class="held"><span>Held by PayPal</span><b>${usd(t.held, d.plan.currency)}</b></div>
-        <div class="paid"><span>Paid out</span><b>${usd(t.released, d.plan.currency)}</b></div>
+        <div><span>${tr('Total')}</span><b>${usd(t.total, d.plan.currency)}</b></div>
+        <div class="held"><span>${tr('Held by PayPal')}</span><b>${usd(t.held, d.plan.currency)}</b></div>
+        <div class="paid"><span>${tr('Paid out')}</span><b>${usd(t.released, d.plan.currency)}</b></div>
       </div>
     </div>
-    <div class="viewing">Viewing as <b>${role === 'client' ? '👤 Client' : '🛠 Freelancer'}</b> — switch roles at the top to see the other side.</div>
+    <div class="viewing">${tr('Viewing as')} <b>${role === 'client' ? `👤 ${tr('Client')}` : `🛠 ${tr('Freelancer')}`}</b> ${tr('— switch roles at the top to see the other side.')}</div>
 
     ${agreementCard(d)}
 
-    ${d.plan.risks.length ? `<section class="card risks"><h3>⚠ Agree on these before you start</h3><ul>${d.plan.risks.map((r) => `<li>${esc(r)}</li>`).join('')}</ul></section>` : ''}
+    ${d.plan.risks.length ? `<section class="card risks"><h3>⚠ ${tr('Agree on these before you start')}</h3><ul>${d.plan.risks.map((r) => `<li>${esc(r)}</li>`).join('')}</ul></section>` : ''}
 
     ${d.milestones.map((m, i) => milestoneCard(d, m, i)).join('')}
 
     <section class="card log">
-      <div class="card-h"><h3>Timeline</h3><button class="btn small ghost" data-act="pdf" data-k="evidence">${busy.pdfevidence0 ? 'Making PDF…' : '⬇ Evidence record (PDF)'}</button></div>
+      <div class="card-h"><h3>${tr('Timeline')}</h3><button class="btn small ghost" data-act="pdf" data-k="evidence">${busy.pdfevidence0 ? tr('Making PDF…') : `⬇ ${tr('Evidence record (PDF)')}`}</button></div>
       <ul>${[...d.log]
         .reverse()
         .map((e) => `<li><span class="who">${who[e.who]}</span><div><p>${esc(e.text)}</p><span class="muted small">${when(e.at)}</span></div></li>`)
         .join('')}</ul>
     </section>
-    <p class="disclaimer">PayPal sandbox demo — no real money moves. The AI recommends; the client always makes the final decision.</p>
+    <p class="disclaimer">${tr('PayPal sandbox demo — no real money moves. The AI recommends; the client always makes the final decision.')}</p>
   </main>`;
 }
 
 function footer() {
   return `<footer class="foot">SafeDeal · payments by <b>PayPal</b> (Orders v2 authorize → capture / void) · AI review by <b>NVIDIA Nemotron</b> · open source (MIT)</footer>`;
+}
+
+function lightboxView() {
+  return lightbox ? `<div class="lightbox" data-act="unzoom"><img src="${lightbox}" alt="" /><button class="btn small" data-act="unzoom">✕ ${tr('Close')}</button></div>` : '';
+}
+
+/** Translate every text of a deal (plan, criteria, reviews, timeline) into the current language. */
+async function translateDeal(d: Deal) {
+  const strings: string[] = [];
+  const idx = new Map<string, number>();
+  const add = (s: string | undefined) => {
+    if (!s || idx.has(s)) return;
+    idx.set(s, strings.length);
+    strings.push(s);
+  };
+  add(d.plan.title);
+  add(d.plan.summary);
+  d.plan.risks.forEach(add);
+  for (const m of d.milestones) {
+    add(m.title);
+    m.criteria.forEach((c) => add(c.text));
+    for (const r of m.reviews) {
+      add(r.summary);
+      r.checks.forEach((c) => (add(c.criterion), add(c.evidence)));
+      r.fixes.forEach(add);
+    }
+  }
+  d.milestones.forEach((m) => m.submissions.forEach((x) => add(x.notes)));
+  d.log.forEach((e) => add(e.text));
+  busy.translate = true;
+  render();
+  try {
+    const { strings: out } = await api<{ strings: string[] }>('translate', { strings, lang: aiLang() });
+    const tx = (s: string) => (idx.has(s) ? out[idx.get(s)!] ?? s : s);
+    d.plan.title = tx(d.plan.title);
+    d.plan.summary = tx(d.plan.summary);
+    d.plan.risks = d.plan.risks.map(tx);
+    for (const m of d.milestones) {
+      m.title = tx(m.title);
+      m.criteria.forEach((c) => (c.text = tx(c.text)));
+      for (const r of m.reviews) {
+        r.summary = tx(r.summary);
+        r.checks.forEach((c) => ((c.criterion = tx(c.criterion)), (c.evidence = tx(c.evidence))));
+        r.fixes = r.fixes.map(tx);
+      }
+    }
+    d.milestones.forEach((m) => m.submissions.forEach((x) => (x.notes = tx(x.notes))));
+    d.log.forEach((e) => (e.text = tx(e.text)));
+    d.lang = lang;
+    persist();
+    toast(tr('Deal translated'));
+  } catch (e) {
+    toast(`⚠ ${(e as Error).message}`);
+  }
+  busy.translate = false;
+  render();
 }
 
 /* ---------------------------------------------------------------- render */
@@ -619,7 +700,7 @@ function render() {
   document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('form input:not([type=file]), form textarea').forEach((el) => {
     if (el.name) drafts[(el.form?.dataset.form ?? '') + (el.form?.dataset.i ?? '') + el.name] = el.value;
   });
-  app.innerHTML = `${header()}${d ? dealView(d) : homeView()}${footer()}${flash ? `<div class="toast">${esc(flash)}</div>` : ''}`;
+  app.innerHTML = `${header()}${d ? dealView(d) : homeView()}${footer()}${lightboxView()}${flash ? `<div class="toast">${esc(flash)}</div>` : ''}`;
   document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('form input:not([type=file]), form textarea').forEach((el) => {
     const k = (el.form?.dataset.form ?? '') + (el.form?.dataset.i ?? '') + el.name;
     if (k in drafts && drafts[k]) el.value = drafts[k];
@@ -677,6 +758,24 @@ app.addEventListener('click', (e) => {
     case 'evidence':
       if (d) evidence(d);
       break;
+    case 'lang':
+      setLang(t.dataset.l as Lang);
+      render();
+      break;
+    case 'translate':
+      if (d) translateDeal(d);
+      break;
+    case 'zoom': {
+      const sub = d?.milestones[Number(t.closest('[data-i]')?.getAttribute('data-i') ?? -1)]?.submissions.at(-1);
+      lightbox = (t as HTMLImageElement).src;
+      void sub;
+      render();
+      break;
+    }
+    case 'unzoom':
+      lightbox = '';
+      render();
+      break;
     case 'sel-start':
       selecting = true;
       selected.clear();
@@ -731,7 +830,7 @@ app.addEventListener('click', (e) => {
       if (d) {
         const m = d.milestones[i];
         const [gone] = m.criteria.splice(Number(t.dataset.c), 1);
-        criteriaChanged(d, `Removed criterion from "${m.title}": ${gone?.text ?? ''}`);
+        criteriaChanged(d, tr('Removed criterion from "{m}": {c}', { m: m.title, c: gone?.text ?? '' }));
       }
       break;
     case 'pdf':
@@ -751,7 +850,7 @@ app.addEventListener('submit', (e) => {
       const m = d.milestones[Number(f.dataset.i)];
       m.criteria.push({ text, check: 'page' });
       (f.elements.namedItem('crit') as HTMLInputElement).value = '';
-      criteriaChanged(d, `Added criterion to "${m.title}": ${text}`);
+      criteriaChanged(d, tr('Added criterion to "{m}": {c}', { m: m.title, c: text }));
     }
   }
   if (f.dataset.form === 'sign') {
@@ -764,9 +863,17 @@ app.addEventListener('submit', (e) => {
   }
 });
 
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && lightbox) {
+    lightbox = '';
+    render();
+  }
+});
+
 window.addEventListener('hashchange', () => {
   window.scrollTo(0, 0);
   render();
 });
 
+setLang(lang);
 render();

@@ -24,6 +24,8 @@ export interface Deal {
   log: Event[];
   /** e-signatures on the deal agreement */
   signatures?: { client?: Signature; freelancer?: Signature };
+  /** language the deal texts are in (en if missing) */
+  lang?: 'en' | 'ru' | 'kk';
 }
 
 export interface Signature {
