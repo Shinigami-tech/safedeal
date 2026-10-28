@@ -148,6 +148,7 @@ async function mountButtons(d: Deal) {
         onError: (err: unknown) => toast(`PayPal error: ${String((err as Error)?.message ?? err).slice(0, 120)}`),
       })
       .render(slot)
+      .then(() => slot.querySelector('.muted')?.remove())
       .catch(() => {});
   }
 }
